@@ -54,30 +54,50 @@ def get_hero_list(data_df):
     return [hero for hero in units if type(hero) is str]
 
 def get_map(version):
-
+    #from https://stackoverflow.com/questions/60685749/python-plotly-how-to-add-an-image-to-a-3d-scatter-plot
     version = version.replace('.', '_')
-    im = np.asarray(Image.open(f"minimap_{version}.jpg"))
-
+    im = np.asarray(Image.open(f"minimap_{version}.jpg").resize((128,128)).rotate(90))
+    im_x, im_y, im_layers = im.shape
     eight_bit_img = Image.fromarray(im).convert('P', palette='WEB', dither=None)
     dum_img = Image.fromarray(np.ones((3, 3, 3), dtype='uint8')).convert('P', palette='WEB')
     idx_to_color = np.array(dum_img.getpalette()).reshape((-1, 3))
     colorscale = [[i / 255.0, "rgb({}, {}, {})".format(*rgb)] for i, rgb in enumerate(idx_to_color)]
-    return eight_bit_img, colorscale
+    x = np.linspace(0, im_x, im_x)
+    y = np.linspace(0, im_y, im_y)
+    z = np.zeros(im.shape[:2])
+    return eight_bit_img, colorscale, x, y, z
 
 
 def plot_paths(paths_df, version):
-    eight_bit_img, colorscale = get_map(version)
+    eight_bit_img, colorscale, x, y, z = get_map(version)
     traces = []
+    x_adj = 64
+    y_adj = 64
     for unit in set(paths_df['unit'].to_list()):
-        unit_df = paths_df[paths_df['unit']==unit]
-        trace = go.Scatter3d(x=paths_df['x'],
-                           y=paths_df['y'],
-                           z=paths_df['time'],
-                           marker=dict(
-                               color=paths_df['unit'],
-                               opacity=0.6
-                                    ),
-                            )
+        if 'obs' in unit or 'sen' in unit:
+            unit_df = paths_df[paths_df['unit'] == unit]
+            traces.append(go.Scatter3d(x=unit_df['x']-x_adj,
+                                       y=unit_df['y']-y_adj,
+                                       z=unit_df['time'],
+                                       name=unit,
+                                       mode='markers',
+                                       marker=dict(
+                                           opacity=1
+                                       ),
+                                       line=dict(width=0),
+                                       ))
+        else:
+            unit_df = paths_df[paths_df['unit']==unit]
+            traces.append(go.Scatter3d(x=unit_df['x']-x_adj,
+                                       y=unit_df['y']-y_adj,
+                                       z=unit_df['time'],
+                                       name=unit,
+                                       marker=dict(
+                                       opacity=0.6
+                                        ),
+                                ))
+
+    fig = go.Figure(data=traces)
 
     fig.add_trace(go.Surface(x=x, y=y, z=z,
                              surfacecolor=eight_bit_img,
