@@ -41,7 +41,8 @@ def get_wards(data_df,slot_dict):
     sen['unit'] = sen.apply(lambda row: slot_dict[row['slot']]+'_sen', axis=1)
     obs = obs.drop(columns=['slot'])
     sen = sen.drop(columns=['slot'])
-
+    deobs = data_df[(data_df['targetname']=='npc_dota_observer_wards') & (data_df['type']=='DOTA_COMBATLOG_DEATH') & (data_df['value']==50)]
+    desen = data_df[(data_df['targetname']=='npc_dota_sentry_wards') & (data_df['type']=='DOTA_COMBATLOG_DEATH') & (data_df['value']==50)]
     return obs, sen
 
 def get_hero_list(data_df):
@@ -68,7 +69,7 @@ def get_map(version):
     return eight_bit_img, colorscale, x, y, z
 
 
-def plot_paths(paths_df, version):
+def plot_paths(paths_df, kills, deaths, version):
     eight_bit_img, colorscale, x, y, z = get_map(version)
     traces = []
     x_adj = 64
@@ -106,11 +107,34 @@ def plot_paths(paths_df, version):
                                        y=unit_df['y']-y_adj,
                                        z=unit_df['time']/60,
                                        name=unit,
+                                       mode='lines',
                                        marker=dict(
                                        opacity=0.6
                                         ),
                                 ))
 
+    traces.append(go.Scatter3d(x=kills['x'] - x_adj,
+                               y=kills['y'] - y_adj,
+                               z=kills['time'] / 60,
+                               name='Kills',
+                               mode='markers',
+                               marker=dict(
+                                   color='red',
+                                   opacity=1
+                               ),
+                               line=dict(width=0),
+                               ))
+    traces.append(go.Scatter3d(x=deaths['x'] - x_adj,
+                               y=deaths['y'] - y_adj,
+                               z=deaths['time'] / 60,
+                               name='Deaths',
+                               mode='markers',
+                               marker=dict(
+                                   color='Black',
+                                   opacity=1
+                               ),
+                               line=dict(width=0),
+                               ))
     fig = go.Figure(data=traces)
 
     fig.add_trace(go.Surface(x=x, y=y, z=z,
@@ -127,6 +151,22 @@ def plot_paths(paths_df, version):
 
                              ))
     fig.show()
+
+
+def get_kills(data_df, paths_df, heros):
+    npc_form_heros = [hero.replace('CDOTA_Unit', 'npc_dota').lower() for hero in heros]
+    kills_df = data_df[data_df['type'] == 'DOTA_COMBATLOG_DEATH']
+    kills_df = kills_df[kills_df['targetname'].isin(npc_form_heros)]
+    hero_map = dict(zip(npc_form_heros, heros))
+    kills = []
+    deaths = []
+    for row in kills_df.iterrows():
+        if row[1]['attackername'] in npc_form_heros:
+            kills.append(paths_df[(paths_df['time']==row[1]['time'])&(paths_df['unit']==hero_map[row[1]['attackername']])])
+        deaths.append(paths_df[(paths_df['time']==row[1]['time'])&(paths_df['unit']==hero_map[row[1]['targetname']])])
+
+
+    return pd.concat(kills), pd.concat(deaths)
 
 if __name__=='__main__':
 
@@ -149,9 +189,11 @@ if __name__=='__main__':
 
     slot_dict = get_slot_dict(data_df)
     obs, sen = get_wards(data_df, slot_dict)
+
     paths.append(sen)
     paths.append(obs)
     paths_df = pd.concat(paths)
+    kills, deaths = get_kills(data_df, paths_df, heros)
     t = paths_df['time'].to_list()
     paths_df['opacity'] = (t - np.min(t))/np.ptp(t)
-    plot_paths(paths_df, version)
+    plot_paths(paths_df, kills, deaths, version)
