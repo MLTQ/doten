@@ -81,6 +81,17 @@ def get_map(version):
     return eight_bit_img, colorscale, x, y, z
 
 
+def generate_kd_pairs(kills, deaths):
+    pairs = []
+    #Because not all deaths are from other heroes lol
+    deaths_lim = deaths[deaths['time'].isin(kills['time'].to_list())]
+    #pairs = list(zip([tuple(r) for r in kills[['time', 'x', 'y']].to_numpy()],
+    #                 [tuple(r) for r in deaths_lim[['time', 'x', 'y']].to_numpy()]))
+    for k in kills[['time', 'x', 'y']].to_numpy():
+        d = deaths[deaths['time']==k[0]][['time', 'x', 'y']].to_numpy()
+        pairs.append((tuple(k), tuple(tuple(d)[0])))
+    return pairs
+
 def plot_paths(paths_df, kills, deaths, version):
     eight_bit_img, colorscale, x, y, z = get_map(version)
     traces = []
@@ -139,6 +150,33 @@ def plot_paths(paths_df, kills, deaths, version):
                                            ),
                                            line=dict(width=0),
                                            ))
+        elif 'kill' in unit:
+            unit_df = paths_df[paths_df['unit'] == unit]
+            traces.append(go.Scatter3d(x=unit_df['x'] - x_adj,
+                                       y=unit_df['y'] - y_adj,
+                                       z=unit_df['time'] / 60,
+                                       name=unit,
+                                       mode='markers',
+                                       marker=dict(
+                                           color='red',
+                                           opacity=1
+                                       ),
+                                       line=dict(width=0),
+                                       ))
+        elif 'death' in unit:
+            unit_df = paths_df[paths_df['unit'] == unit]
+            traces.append(go.Scatter3d(x=unit_df['x'] - x_adj,
+                                       y=unit_df['y'] - y_adj,
+                                       z=unit_df['time'] / 60,
+                                       name=unit,
+                                       mode='markers',
+                                       marker=dict(
+                                           color='Black',
+                                           opacity=1
+                                       ),
+                                       line=dict(width=0),
+                                       ))
+
         else:
             unit_df = paths_df[paths_df['unit']==unit]
             traces.append(go.Scatter3d(x=unit_df['x']-x_adj,
@@ -151,28 +189,39 @@ def plot_paths(paths_df, kills, deaths, version):
                                         ),
                                 ))
 
-    traces.append(go.Scatter3d(x=kills['x'] - x_adj,
-                               y=kills['y'] - y_adj,
-                               z=kills['time'] / 60,
-                               name='Kills',
-                               mode='markers',
-                               marker=dict(
-                                   color='red',
-                                   opacity=1
-                               ),
-                               line=dict(width=0),
-                               ))
-    traces.append(go.Scatter3d(x=deaths['x'] - x_adj,
-                               y=deaths['y'] - y_adj,
-                               z=deaths['time'] / 60,
-                               name='Deaths',
-                               mode='markers',
-                               marker=dict(
-                                   color='Black',
-                                   opacity=1
-                               ),
-                               line=dict(width=0),
-                               ))
+    pairs = generate_kd_pairs(kills, deaths)
+    #
+    #For each pair, add them into a single list and then slap a 'None' between them
+    x_lines = []
+    y_lines = []
+    time_lines = []
+    for p in pairs:
+        time_lines.append(p[0][0]/60)
+        time_lines.append(p[1][0]/60)
+        time_lines.append(None)
+        x_lines.append(p[0][1] - x_adj)
+        x_lines.append(p[1][1] - x_adj)
+        x_lines.append(None)
+        y_lines.append(p[0][2] - y_adj)
+        y_lines.append(p[1][2] - y_adj)
+        y_lines.append(None)
+
+    traces.append(go.Scatter3d(
+        x=x_lines,
+        y=y_lines,
+        z=time_lines,
+        mode='lines',
+        name='kd_lines',
+        marker=dict(
+            color='black',
+            line=dict(
+                width=2
+            )
+        ),
+        line=dict(width=6)
+    ))
+
+
     fig = go.Figure(data=traces)
 
     fig.add_trace(go.Surface(x=x, y=y, z=z,
@@ -202,9 +251,11 @@ def get_kills(data_df, paths_df, heros):
         if row[1]['attackername'] in npc_form_heros:
             kills.append(paths_df[(paths_df['time']==row[1]['time'])&(paths_df['unit']==hero_map[row[1]['attackername']])])
         deaths.append(paths_df[(paths_df['time']==row[1]['time'])&(paths_df['unit']==hero_map[row[1]['targetname']])])
-
-
-    return pd.concat(kills), pd.concat(deaths)
+    kills_df = pd.concat(kills)
+    kills_df['unit'] = kills_df.apply(lambda row: row['unit'] + '_kill', axis=1)
+    deaths_df = pd.concat(deaths)
+    deaths_df['unit'] = deaths_df.apply(lambda row: row['unit'] + '_death', axis=1)
+    return kills_df, deaths_df
 
 if __name__=='__main__':
 
@@ -234,6 +285,9 @@ if __name__=='__main__':
     paths.append(desen)
     paths_df = pd.concat(paths)
     kills, deaths = get_kills(data_df, paths_df, heros)
+    paths.append(kills)
+    paths.append(deaths)
+    paths_df = pd.concat(paths)
     t = paths_df['time'].to_list()
     paths_df['opacity'] = (t - np.min(t))/np.ptp(t)
-    plot_paths(paths_df, kills, deaths, version)
+    plot_paths(paths_df,kills, deaths, version)
