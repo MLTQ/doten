@@ -35,15 +35,27 @@ def get_wards(data_df,slot_dict):
     :param slot_dict: mapping of slot to heroes, output of get_slot_dict
     :return:
     '''
+    npc_form_heros = [hero.replace('CDOTA_Unit', 'npc_dota').lower() for hero in heros]
+    hero_map = dict(zip(npc_form_heros, heros))
     obs = data_df[data_df['type'] == 'obs'][['time','x','y','slot']]
     sen = data_df[data_df['type']=='sen'][['time','x','y','slot']]
     obs['unit'] = obs.apply(lambda row: slot_dict[row['slot']]+'_obs', axis=1)
     sen['unit'] = sen.apply(lambda row: slot_dict[row['slot']]+'_sen', axis=1)
     obs = obs.drop(columns=['slot'])
     sen = sen.drop(columns=['slot'])
-    deobs = data_df[(data_df['targetname']=='npc_dota_observer_wards') & (data_df['type']=='DOTA_COMBATLOG_DEATH') & (data_df['value']==50)]
-    desen = data_df[(data_df['targetname']=='npc_dota_sentry_wards') & (data_df['type']=='DOTA_COMBATLOG_DEATH') & (data_df['value']==50)]
-    return obs, sen
+    deobs_inst = data_df[(data_df['targetname']=='npc_dota_observer_wards') & (data_df['type']=='DOTA_COMBATLOG_DEATH') & (data_df['value']==50)]
+    desen_inst = data_df[(data_df['targetname']=='npc_dota_sentry_wards') & (data_df['type']=='DOTA_COMBATLOG_DEATH') & (data_df['value']==50)]
+    deobs_list=[]
+    desen_list=[]
+    for row in deobs_inst.iterrows():
+        deobs_list.append(data_df[(data_df['time']==row[1]['time'])&(data_df['type']=='interval')&(data_df['unit']==hero_map[row[1]['attackername']])])
+    for row in desen_inst.iterrows():
+        desen_list.append(data_df[(data_df['time'] == row[1]['time']) & (data_df['type'] == 'interval') & (data_df['unit'] == hero_map[row[1]['attackername']])])
+    deobs = pd.concat(deobs_list)[['time','x','y','slot']]
+    deobs['unit'] = deobs.apply(lambda row: slot_dict[row['slot']]+'_dob', axis=1)
+    desen = pd.concat(desen_list)[['time','x','y','slot']]
+    desen['unit'] = desen.apply(lambda row: slot_dict[row['slot']]+'_dse', axis=1)
+    return obs, sen, deobs, desen
 
 def get_hero_list(data_df):
     '''
@@ -97,6 +109,32 @@ def plot_paths(paths_df, kills, deaths, version):
                                            mode='markers',
                                            marker=dict(
                                                color='blue',
+                                               opacity=1
+                                           ),
+                                           line=dict(width=0),
+                                           ))
+        elif 'dse' in unit:
+                unit_df = paths_df[paths_df['unit'] == unit]
+                traces.append(go.Scatter3d(x=unit_df['x'] - x_adj,
+                                           y=unit_df['y'] - y_adj,
+                                           z=unit_df['time'] / 60,
+                                           name=unit,
+                                           mode='markers',
+                                           marker=dict(
+                                               color='navy',
+                                               opacity=1
+                                           ),
+                                           line=dict(width=0),
+                                           ))
+        elif 'dob' in unit:
+                unit_df = paths_df[paths_df['unit'] == unit]
+                traces.append(go.Scatter3d(x=unit_df['x'] - x_adj,
+                                           y=unit_df['y'] - y_adj,
+                                           z=unit_df['time'] / 60,
+                                           name=unit,
+                                           mode='markers',
+                                           marker=dict(
+                                               color='brown',
                                                opacity=1
                                            ),
                                            line=dict(width=0),
@@ -188,10 +226,12 @@ if __name__=='__main__':
         paths.append(path_df)
 
     slot_dict = get_slot_dict(data_df)
-    obs, sen = get_wards(data_df, slot_dict)
+    obs, sen, deobs, desen = get_wards(data_df, slot_dict)
 
     paths.append(sen)
     paths.append(obs)
+    paths.append(deobs)
+    paths.append(desen)
     paths_df = pd.concat(paths)
     kills, deaths = get_kills(data_df, paths_df, heros)
     t = paths_df['time'].to_list()
