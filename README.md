@@ -13,9 +13,12 @@ Each map is "From the perspective of team X given win condition Y". So Given you
 
 All maps are displayed as density maps, with the height axis being time. 
 
-The darker the color, the more of `the thing` happened. This is especially useful for understanding how successful farming and warding patterns move over time. 
+The more opaque the color, the more of `the thing` happened. This is especially useful for understanding how successful farming and warding patterns move over time. 
 
 Remember, these are averages of many dota games. The better you categorize your input, the more meaningful the averages will be.
+
+For instance, because the height axis is time, you can look at a layer of 10 minutes in, and see the hotspots of where wards are being placed, or where kills are happening. 
+This doesn't tell you about any individual game, but trends as a whole!
 
 ## How this works
 The `odota` tool breaks out Valve's .dem replay files into timestamped event streams. 
