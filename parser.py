@@ -6,6 +6,16 @@ import numpy as np
 from PIL import Image
 from scipy import misc
 import plotly.graph_objects as go
+from glob import glob
+import numpy as np
+from scipy import stats
+from hero import *
+from plotly.subplots import make_subplots
+
+from multiprocessing import cpu_count, Process, Queue
+import json
+from glob import glob
+
 
 def loader(file):
 
@@ -28,48 +38,11 @@ def get_slot_dict(data_df):
         slot_dict[slot] = unit
     return slot_dict
 
-def get_wards(data_df,slot_dict):
-    '''
-
-    :param data_df: the df form pls
-    :param slot_dict: mapping of slot to heroes, output of get_slot_dict
-    :return:
-    '''
-    npc_form_heros = [hero.replace('CDOTA_Unit', 'npc_dota').lower() for hero in heros]
-    hero_map = dict(zip(npc_form_heros, heros))
-    obs = data_df[data_df['type'] == 'obs'][['time','x','y','slot']]
-    sen = data_df[data_df['type']=='sen'][['time','x','y','slot']]
-    obs['unit'] = obs.apply(lambda row: slot_dict[row['slot']]+'_obs', axis=1)
-    sen['unit'] = sen.apply(lambda row: slot_dict[row['slot']]+'_sen', axis=1)
-    obs = obs.drop(columns=['slot'])
-    sen = sen.drop(columns=['slot'])
-    deobs_inst = data_df[(data_df['targetname']=='npc_dota_observer_wards') & (data_df['type']=='DOTA_COMBATLOG_DEATH') & (data_df['value']==50)]
-    desen_inst = data_df[(data_df['targetname']=='npc_dota_sentry_wards') & (data_df['type']=='DOTA_COMBATLOG_DEATH') & (data_df['value']==50)]
-    deobs_list=[]
-    desen_list=[]
-    for row in deobs_inst.iterrows():
-        deobs_list.append(data_df[(data_df['time']==row[1]['time'])&(data_df['type']=='interval')&(data_df['unit']==hero_map[row[1]['attackername']])])
-    for row in desen_inst.iterrows():
-        desen_list.append(data_df[(data_df['time'] == row[1]['time']) & (data_df['type'] == 'interval') & (data_df['unit'] == hero_map[row[1]['attackername']])])
-    deobs = pd.concat(deobs_list)[['time','x','y','slot']]
-    deobs['unit'] = deobs.apply(lambda row: slot_dict[row['slot']]+'_dob', axis=1)
-    desen = pd.concat(desen_list)[['time','x','y','slot']]
-    desen['unit'] = desen.apply(lambda row: slot_dict[row['slot']]+'_dse', axis=1)
-    return obs, sen, deobs, desen
-
-def get_hero_list(data_df):
-    '''
-
-    :param data_df: df form pls
-    :return:
-    '''
-    units=set(data_df['unit'].to_list())
-    return [hero for hero in units if type(hero) is str]
 
 def get_map(version):
     #from https://stackoverflow.com/questions/60685749/python-plotly-how-to-add-an-image-to-a-3d-scatter-plot
     version = version.replace('.', '_')
-    im = np.asarray(Image.open(f"minimap_{version}.jpg").resize((128,128)).transpose(Image.FLIP_LEFT_RIGHT))
+    im = np.asarray(Image.open(f"minimap_{version}.jpg").resize((128,128)).rotate(180).transpose(Image.FLIP_LEFT_RIGHT))
     im_x, im_y, im_layers = im.shape
     eight_bit_img = Image.fromarray(im).convert('P', palette='WEB', dither=None)
     dum_img = Image.fromarray(np.ones((3, 3, 3), dtype='uint8')).convert('P', palette='WEB')
@@ -79,7 +52,6 @@ def get_map(version):
     y = np.linspace(0, im_y, im_y)
     z = np.zeros(im.shape[:2])-1.5
     return eight_bit_img, colorscale, x, y, z
-
 
 def generate_kd_pairs(kills, deaths):
     pairs = []
@@ -239,12 +211,12 @@ def plot_paths(paths_df, kills, deaths, version):
                              ))
     fig.show()
 
-
-def get_kills(data_df, paths_df, heros):
-    npc_form_heros = [hero.replace('CDOTA_Unit', 'npc_dota').lower() for hero in heros]
+def get_kills(data_df, paths_df):
+    heros, hero_map = get_hero_map(data_df)
+    npc_form_heros = list(hero_map.keys())
     kills_df = data_df[data_df['type'] == 'DOTA_COMBATLOG_DEATH']
     kills_df = kills_df[kills_df['targetname'].isin(npc_form_heros)]
-    hero_map = dict(zip(npc_form_heros, heros))
+
     kills = []
     deaths = []
     for row in kills_df.iterrows():
@@ -257,37 +229,311 @@ def get_kills(data_df, paths_df, heros):
     deaths_df['unit'] = deaths_df.apply(lambda row: row['unit'] + '_death', axis=1)
     return kills_df, deaths_df
 
+def get_posmap(games, path_type, team_id, vic_or_def):
+    relevant_teams = []
+    team_id = int(team_id)
+    if vic_or_def == 'vic':
+        state = 'Victory'
+        for match in games:
+            if match[0].winner == team_id:
+                relevant_teams.append(match[team_id])
+    elif vic_or_def == 'def':
+        state = 'Defeat'
+        for match in games:
+            if match[0].winner != team_id:
+                relevant_teams.append(match[team_id])
+    elif vic_or_def == None:
+        state = 'All matches'
+        for match in games:
+            relevant_teams.append(match[team_id])
+    poses = []
+
+    for team in relevant_teams:
+        for member in team:
+            if path_type == 'kills':
+                if member.kills is not None:
+                    poses.append(member.kills)
+            elif path_type == 'deaths':
+                if member.kills is not None:
+                    poses.append(member.deaths)
+            elif path_type == 'farm':
+                if member.kills is not None:
+                    poses.append(member.farm)
+            elif path_type == 'wards':
+                for kind in ['obs', 'sen']:
+                    if len(member.wards_placed[kind]) > 0:
+                        poses.append(member.wards_placed[kind])
+            else:
+                print(f'Kind {path_type} not recognized')
+
+    path_df = pd.concat(poses)
+
+    return path_df, state
+
+
+def plot_path_heatmap(path_df, path_type, team_id, state,  version='7.29'):
+    if path_type == 'kills':
+        colors = 'PuRd'
+    elif path_type == 'deaths':
+        colors = 'greys'
+    elif path_type == 'wards':
+        colors = 'viridis'
+    elif path_type == 'farm':
+        colors = 'Mint'
+
+    x = path_df['x'].to_numpy()
+    y = path_df['y'].to_numpy()
+    z = (path_df['time']/60).to_numpy()
+
+    xyz = np.vstack([x, y, z])
+    kde = stats.gaussian_kde(xyz)
+
+    # Evaluate kde on a grid
+    xmin, ymin, zmin = x.min(), y.min(), z.min()
+    xmax, ymax, zmax = x.max(), y.max(), z.max()
+    xi, yi, zi = np.mgrid[xmin:xmax:30j, ymin:ymax:30j, zmin:zmax:30j]
+    coords = np.vstack([item.ravel() for item in [xi, yi, zi]])
+    density = kde(coords).reshape(xi.shape)
+
+    names = ['x', 'y', 'z']
+    index = pd.MultiIndex.from_product([range(s) for s in density.shape], names=names)
+    df = pd.DataFrame(pd.DataFrame({'Density': density.flatten()}, index=index)['Density']).reset_index()
+
+    df['C_scaled'] = df['Density'].max() / df['Density']
+    df['C_scaled'] = 50 * (df['Density'] - df['Density'].min()) / (df['Density'].max() - df['Density'].min())
+    traces = go.Volume(
+        x=xi.flatten() - x_adj,
+        y=yi.flatten() - y_adj,
+        z=zi.flatten(),
+        value=df['C_scaled'],
+        opacity=0.1,
+        name=f'{path_type.capitalize()} for {team_id}, {state}',
+        colorscale=colors,# needs to be small to see through all surfaces
+        surface_count=40,  # needs to be a large number for good volume rendering
+    )
+    fig = go.Figure(data=traces)
+    return traces
+
+def plot_slice_heatmap(path_df, path_type, team_id, state,  version='7.29'):
+    if path_type == 'kills':
+        colors = 'PuRd'
+    elif path_type == 'deaths':
+        colors = 'greys'
+    elif path_type == 'wards':
+        colors = 'viridis'
+    elif path_type == 'farm':
+        colors = 'Mint'
+
+    x = path_df['x'].to_numpy()
+    y = path_df['y'].to_numpy()
+    z = (path_df['time']/60).to_numpy()
+
+    xyz = np.vstack([x, y, z])
+    kde = stats.gaussian_kde(xyz)
+
+    # Evaluate kde on a grid
+    xmin, ymin, zmin = x.min(), y.min(), z.min()
+    xmax, ymax, zmax = x.max(), y.max(), z.max()
+    xi, yi, zi = np.mgrid[xmin:xmax:30j, ymin:ymax:30j, zmin:zmax:30j]
+    coords = np.vstack([item.ravel() for item in [xi, yi, zi]])
+    density = kde(coords).reshape(xi.shape)
+
+    names = ['x', 'y', 'z']
+    index = pd.MultiIndex.from_product([range(s) for s in density.shape], names=names)
+    df = pd.DataFrame(pd.DataFrame({'Density': density.flatten()}, index=index)['Density']).reset_index()
+
+    df['C_scaled'] = df['Density'].max() / df['Density']
+    df['C_scaled'] = 50 * (df['Density'] - df['Density'].min()) / (df['Density'].max() - df['Density'].min())
+    traces = []
+    for i in range(0,50,10):
+        traces.append(go.Volume(
+            x=xi.flatten() - x_adj,
+            y=yi.flatten() - y_adj,
+            z=zi.flatten(),
+            value=df['C_scaled'],
+            opacity=0.1,
+            visible=False,
+            slices_z=dict(show=True, locations=[i]),
+            name=f'{path_type.capitalize()} for {team_id}, {state}',
+            colorscale=colors,# needs to be small to see through all surfaces
+            surface_count=40,  # needs to be a large number for good volume rendering
+        ))
+    fig = go.Figure(data=traces)
+    fig.data[0].visible = True
+
+    return traces
+
+def load_games(games):
+    game_dfs = []
+    for game in tqdm(games, desc='Loading games...'):
+        _, data_df = loader(game)
+        game_dfs.append(data_df)
+    return game_dfs
+
+def multigame_paths(games):
+    paths = []
+    for data_df in tqdm(games, desc='Getting Paths'):
+        heros = get_hero_list(data_df)
+
+
+        for hero in heros:
+            hero_df = data_df[data_df['unit'] == hero]
+            path_df = pd.DataFrame()
+            path_df['time'] = hero_df['time']
+            path_df['x'] = hero_df['x']
+            path_df['y'] = hero_df['y']
+            path_df['unit'] = hero_df['unit']
+            paths.append(path_df)
+
+        slot_dict = get_slot_dict(data_df)
+        obs, sen, deobs, desen, obs_pos, sen_pos = get_wards_pos(data_df)
+
+        paths.append(sen)
+        paths.append(obs)
+        paths.append(deobs)
+        paths.append(desen)
+        paths_df = pd.concat(paths)
+        kills, deaths = get_kills(data_df, paths_df)
+        paths.append(kills)
+        paths.append(deaths)
+    paths_df = pd.concat(paths)
+    return paths_df
+
+def load_teams(game_df):
+
+    game_obj = game(game_df)
+    teamRad = []
+    teamDir = []
+    for hero in game_obj.heros:
+        temp_hero = player(game=game_obj, name=hero, npc_name=game_obj.pam_oreh[hero])
+        temp_hero.get_path()
+        temp_hero.get_kills_and_deaths()
+        temp_hero.get_team()
+        temp_hero.get_wards(kind='obs')
+        temp_hero.get_wards(kind='sen')
+        temp_hero.get_farm()
+        if temp_hero.team == 1:
+            teamRad.append(temp_hero)
+        else:
+            teamDir.append(temp_hero)
+
+    return (game_obj, teamRad, teamDir)
+
+def plot_path_matrix(traces, title):
+    fig = make_subplots(specs=[[{"type": "scene"}, {"type": "scene"}], [{"type": "scene"}, {"type": "scene"}]],
+                        rows=2, cols=2,
+                        subplot_titles=("Radiant Victory", "Dire Victory", "Radiant Defeat", "Dire Defeat"),
+                        horizontal_spacing=0.01, vertical_spacing=0.02)
+    eight_bit_img, colorscale, x, y, z = get_map(version)
+    map_img = go.Surface(x=x, y=y, z=z - 1,
+                         surfacecolor=eight_bit_img,
+                         cmin=0,
+                         cmax=255,
+                         colorscale=colorscale,
+                         showscale=False,
+                         lighting_diffuse=1,
+                         lighting_ambient=1,
+                         lighting_fresnel=1,
+                         lighting_roughness=1,
+                         lighting_specular=0.5, )
+    fig.add_trace(traces[0], row=1, col=1)
+    fig.add_trace(map_img, row=1, col=1)
+    fig.add_trace(traces[1], row=1, col=2)
+    fig.add_trace(map_img, row=1, col=2)
+    fig.add_trace(traces[2], row=2, col=1)
+    fig.add_trace(map_img, row=2, col=1)
+    fig.add_trace(traces[3], row=2, col=2)
+    fig.add_trace(map_img, row=2, col=2)
+    fig.update_layout(go.Layout(
+        template='plotly_dark',
+        showlegend=True,
+        title = title
+    ))
+    fig.write_html(f"{title}.html")
+
+def plot_single_heatmap(trace, title):
+    layout = go.Layout(
+        template='plotly_dark',
+        showlegend=True,
+        title=title,
+    )
+    fig = go.Figure(data=trace, layout=layout)
+    steps = []
+    for i in range(len(fig.data)):
+        step = dict(
+            method="update",
+            args=[{"visible": [False] * len(fig.data)},
+                  {"title": "Slider switched to step: " + str(i)}],  # layout attribute
+        )
+        step["args"][0]["visible"][i] = True  # Toggle i'th trace to "visible"
+        steps.append(step)
+
+    sliders = [dict(
+        active=10,
+        currentvalue={"prefix": "Frequency: "},
+        pad={"t": 50},
+        steps=steps
+    )]
+
+    fig.update_layout(
+        sliders=sliders
+    )
+
+    eight_bit_img, colorscale, x, y, z = get_map(version)
+    map_img = go.Surface(x=x, y=y, z=z - 1,
+                         surfacecolor=eight_bit_img,
+                         cmin=0,
+                         cmax=255,
+                         colorscale=colorscale,
+                         showscale=False,
+                         lighting_diffuse=1,
+                         lighting_ambient=1,
+                         lighting_fresnel=1,
+                         lighting_roughness=1,
+                         lighting_specular=0.5, )
+    fig.add_trace(map_img)
+    fig.show()
+
+
 if __name__=='__main__':
 
-    file = '6227612490.json'
-    data, data_df = loader(file)
-    heros = get_hero_list(data_df)
-    paths =[]
+    file = 'replays/6227612490.json'
+    version = '7.31'
+    x_adj = 64
+    y_adj = 64
+
+    for MMR in ['3',]:#'7']:
+        games = glob(f'replays/{MMR}kmmr/*')
+        games = load_games(games)
+
+        matches = []
+        for game_inst in tqdm(games):
+            matches.append(load_teams(game_inst))
+
+        #path_df, state = get_posmap(matches, 'farm', 1, 'vic')
+        #title = 'Radiant farm given victory'
+        #plot_single_heatmap(plot_path_heatmap(path_df, 'farm', 1, state, version='7.29'), title)
+
+        for path_type in ['wards','kills','deaths','farm']:
+            traces = []
+            team = 1
+            v = 'vic'
+            path_df, state = get_posmap(matches,path_type, team, v)
+            traces.append(plot_path_heatmap(path_df, path_type, team, state, version='7.29'))
+            v = 'def'
+            path_df, state = get_posmap(matches, path_type, team, v)
+            traces.append(plot_path_heatmap(path_df, path_type, team, state, version='7.29'))
+
+            v = 'vic'
+            team=2
+            path_df, state = get_posmap(matches,path_type, team, v)
+            traces.append(plot_path_heatmap(path_df, path_type, team, state, version='7.29'))
+            v='def'
+            path_df, state = get_posmap(matches,path_type, team, v)
+            traces.append(plot_path_heatmap(path_df, path_type, team, state, version='7.29'))
+
+            plot_path_matrix(traces, f'{MMR}kMMR average {path_type} heatmap')
 
 
-    version = '7.29'
 
-    for hero in heros:
-        hero_df = data_df[data_df['unit']==hero]
-        path_df = pd.DataFrame()
-        path_df['time'] = hero_df['time']
-        path_df['x'] = hero_df['x']
-        path_df['y'] = hero_df['y']
-        path_df['unit'] = hero_df['unit']
-        paths.append(path_df)
-
-    slot_dict = get_slot_dict(data_df)
-    obs, sen, deobs, desen = get_wards(data_df, slot_dict)
-
-    paths.append(sen)
-    paths.append(obs)
-    paths.append(deobs)
-    paths.append(desen)
-    paths_df = pd.concat(paths)
-    kills, deaths = get_kills(data_df, paths_df, heros)
-    paths.append(kills)
-    paths.append(deaths)
-    paths_df = pd.concat(paths)
-    t = paths_df['time'].to_list()
-    paths_df['opacity'] = (t - np.min(t))/np.ptp(t)
-    plot_paths(paths_df,kills, deaths, version)
+    paths_df = multigame_paths(games)
