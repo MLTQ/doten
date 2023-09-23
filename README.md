@@ -45,6 +45,8 @@ You'll get some HTML files that look like the following:
 
 -Allow comparisons "What does a successful Radiant laning phase as Oracle look like?"
 
+-Make everything operate inside a gradio UI
+
 How to get replay CSVs:
 1. get java & maven, set JAVA_HOME and MAVEN_HOME paths
 2. get https://github.com/odota/parser and build with mvn /path/to/parser/jar (name) package
