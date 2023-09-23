@@ -33,9 +33,13 @@ You'll get some HTML files that look like the following:
 
 # TODO:
 -Updated for 7.34c map layout. 
+
 -Allow multiple heatmaps overlayed, to build inference of what leads to what ("Does this warding spot really lead to kills?")
+
 -Allow per-hero selection ("Show me only games where I won as Slark.")
+
 -Detect laning phase automatically
+
 -Allow comparisons "What does a successful Radiant laning phase as Oracle look like?"
 
 How to get replay CSVs:
