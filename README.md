@@ -11,7 +11,7 @@ Each map is "From the perspective of team X given win condition Y". So Given you
 
 All maps are displayed as density maps, with the height axis being time. 
 
-#How to run
+# How to run
 
 Install the prerequisites, and put your replay JSONs in a `/replays` folder. 
 If you want, break that into 1kmmr, 2kmmr etc folders, and edit `parser.py` to accomodate. Currently it is set up for 3kmmr and 7kmmr. On the TODO list to make that adaptable.
@@ -20,7 +20,7 @@ Run `parser.py`!
 You'll get some HTML files that look like the following:
 ![Definitely not one of my games >_>](https://github.com/mltq/doten/blob/master/media/3kmmr_farm.png?raw=true)
 
-##Note: Currently not updated for 7.34c map layout. 
+## Note: Currently not updated for 7.34c map layout. 
 
 How to get replay CSVs:
 1. get java & maven, set JAVA_HOME and MAVEN_HOME paths
