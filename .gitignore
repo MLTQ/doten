@@ -135,3 +135,17 @@ replays/7kmmr/
 replays/
 
 dems/
+
+# Tauri app
+node_modules/
+.DS_Store
+app/src-tauri/gen/schemas/
+app/public/gamedata.json
+
+# gruve kit binary + archive (run ./gruve-kit/gruve yourself)
+gruve-kit.zip
+gruve-kit/gruve
+
+app/.vscode/
+
+.claude/

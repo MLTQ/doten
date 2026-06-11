@@ -1,0 +1,11 @@
+{
+  "name": "gruve-sdk",
+  "version": "0.1.0",
+  "description": "Announce your running app to the local Gruve agent so friends can discover and open it over the mesh.",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "sideEffects": false,
+  "files": ["index.js", "index.d.ts", "README.md", "DESIGN-FOR-GRUVE.md"],
+  "license": "MIT"
+}
