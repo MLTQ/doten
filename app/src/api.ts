@@ -90,6 +90,13 @@ const browserApi: Api = {
             gameBuild: g.gameBuild,
             heroesRadiant: g.players.filter((p) => p.team === 2).map((p) => p.heroId),
             heroesDire: g.players.filter((p) => p.team === 3).map((p) => p.heroId),
+            players: g.players.map((p) => ({
+              slot: p.slot,
+              accountId: p.accountId,
+              team: p.team,
+              heroId: p.heroId,
+              name: p.name,
+            })),
             parsedAt: Date.now() / 1000,
             tag: 'fixture',
           },

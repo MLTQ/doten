@@ -24,6 +24,10 @@ pub struct PlayerMeta {
     pub hero_id: i32,
     pub hero_name: String, // npc_dota_hero_*
     pub name: String,      // player display name
+    /// 32-bit Steam account id (SteamID64 & 0xFFFFFFFF). 0 = unknown / bot.
+    /// Stable across games, so it's the key for cross-game player analytics.
+    #[serde(default)]
+    pub account_id: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -60,6 +64,20 @@ pub struct GameData {
     pub events: Vec<MatchEvent>,
 }
 
+/// Lightweight per-player identity carried in the library index, so
+/// cross-game classifiers (by account, hero, name, team) can select players
+/// without loading every full game off disk.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerRef {
+    pub slot: u8, // 0..9, indexes into GameData.tracks / .players
+    #[serde(default)]
+    pub account_id: u32,
+    pub team: u8, // 2 radiant, 3 dire
+    pub hero_id: i32,
+    pub name: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GameSummary {
@@ -70,6 +88,10 @@ pub struct GameSummary {
     pub game_build: u32,
     pub heroes_radiant: Vec<i32>,
     pub heroes_dire: Vec<i32>,
+    /// Full per-player identity (slot, account, team, hero, name). Added for
+    /// cross-game analytics; older index entries deserialize with an empty vec.
+    #[serde(default)]
+    pub players: Vec<PlayerRef>,
     pub parsed_at: u64, // unix seconds
     #[serde(default)]
     pub tag: String, // user-assigned bucket, e.g. "3k", "7k", "mine"
@@ -93,6 +115,17 @@ impl GameData {
                 .iter()
                 .filter(|p| p.team == 3)
                 .map(|p| p.hero_id)
+                .collect(),
+            players: self
+                .players
+                .iter()
+                .map(|p| PlayerRef {
+                    slot: p.slot,
+                    account_id: p.account_id,
+                    team: p.team,
+                    hero_id: p.hero_id,
+                    name: p.name.clone(),
+                })
                 .collect(),
             parsed_at,
             tag: String::new(),
