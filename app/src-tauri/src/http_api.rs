@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tiny_http::{Header, Method, Response, Server};
 
-use crate::library::{self, AggregateFilter};
+use crate::library::{self, AggregateFilter, SelectionFilter};
 
 pub const DEFAULT_PORT: u16 = 9171;
 
@@ -100,6 +100,17 @@ fn handle_api(
                 return json_response("{\"error\":\"bad filter\"}".into(), 400);
             };
             match library::aggregate_events(app, &filter) {
+                Ok(res) => json_response(serde_json::to_string(&res).unwrap_or_default(), 200),
+                Err(e) => err(e.to_string()),
+            }
+        }
+        (Method::Post, "/api/aggregate-selection") => {
+            let mut buf = String::new();
+            let _ = body.take(1 << 20).read_to_string(&mut buf);
+            let Ok(filter) = serde_json::from_str::<SelectionFilter>(&buf) else {
+                return json_response("{\"error\":\"bad filter\"}".into(), 400);
+            };
+            match library::aggregate_selection(app, &filter) {
                 Ok(res) => json_response(serde_json::to_string(&res).unwrap_or_default(), 200),
                 Err(e) => err(e.to_string()),
             }

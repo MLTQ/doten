@@ -81,6 +81,21 @@ export interface AggregateFilter {
   tag?: string;
 }
 
+/**
+ * Cross-game player selection: pick players out of each game by identity
+ * (hero / account / name) and facet (team, win), then pool their events.
+ * Empty classifier arrays / undefined facets mean "no constraint".
+ */
+export interface SelectionFilter {
+  kinds: string[];
+  heroes?: number[]; // hero_id whitelist
+  accounts?: number[]; // 32-bit account_id whitelist
+  nameQuery?: string; // case-insensitive substring on player name
+  team?: number; // 2 radiant / 3 dire
+  win?: boolean; // selected player's team won
+  tag?: string;
+}
+
 export interface AggregateResult {
   points: [number, number, number][]; // [t, x, y]
   games: number;

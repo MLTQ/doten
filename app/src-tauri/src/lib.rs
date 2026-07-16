@@ -61,6 +61,17 @@ async fn aggregate_events(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn aggregate_selection(
+    app: AppHandle,
+    filter: library::SelectionFilter,
+) -> Result<library::AggregateResult, String> {
+    tauri::async_runtime::spawn_blocking(move || library::aggregate_selection(&app, &filter))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -86,7 +97,8 @@ pub fn run() {
             load_game,
             delete_game,
             set_tag,
-            aggregate_events
+            aggregate_events,
+            aggregate_selection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

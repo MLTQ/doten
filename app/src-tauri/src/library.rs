@@ -104,6 +104,81 @@ pub struct AggregateResult {
     pub games: u32,
 }
 
+/// A cross-game *player selection*: pick players out of each game by identity
+/// (hero / account / name) and facet (team, win), then pool the events those
+/// selected players performed. This generalizes `aggregate_events` from
+/// team-scoped to player-scoped — the basis for "study my Slark games",
+/// "just my wards across every game", etc.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionFilter {
+    pub kinds: Vec<String>,
+    /// Classifier — a player is selected when it matches every *non-empty*
+    /// criterion. All empty ⇒ every player in the game qualifies.
+    #[serde(default)]
+    pub heroes: Vec<i32>, // hero_id whitelist
+    #[serde(default)]
+    pub accounts: Vec<u32>, // 32-bit account_id whitelist
+    #[serde(default)]
+    pub name_query: Option<String>, // case-insensitive substring on player name
+    /// Facets, evaluated per selected player (not the whole game):
+    pub team: Option<u8>, // 2 radiant / 3 dire; None = both
+    pub win: Option<bool>, // did the selected player's team win? None = both
+    pub tag: Option<String>,
+}
+
+/// Pool the events of players selected by `filter` across the whole library.
+/// Classification runs against the full per-game player list (so hero/name/team
+/// facets work even on games parsed before account ids existed; the account
+/// facet only matches games re-parsed since).
+pub fn aggregate_selection(app: &AppHandle, filter: &SelectionFilter) -> Result<AggregateResult> {
+    let index = read_index(app)?;
+    let name_q = filter
+        .name_query
+        .as_deref()
+        .map(str::to_lowercase)
+        .filter(|s| !s.is_empty());
+    let mut points = Vec::new();
+    let mut games = 0u32;
+    for summary in &index {
+        if let Some(tag) = &filter.tag {
+            if !tag.is_empty() && &summary.tag != tag {
+                continue;
+            }
+        }
+        let Ok(data) = load_game(app, summary.match_id) else {
+            continue;
+        };
+        // Which slots in this game does the classifier pick?
+        let selected: Vec<i8> = data
+            .players
+            .iter()
+            .filter(|p| filter.heroes.is_empty() || filter.heroes.contains(&p.hero_id))
+            .filter(|p| filter.accounts.is_empty() || filter.accounts.contains(&p.account_id))
+            .filter(|p| match &name_q {
+                Some(q) => p.name.to_lowercase().contains(q),
+                None => true,
+            })
+            .filter(|p| filter.team.is_none_or(|t| p.team == t))
+            .filter(|p| filter.win.is_none_or(|w| (data.winner == p.team) == w))
+            .map(|p| p.slot as i8)
+            .collect();
+        if selected.is_empty() {
+            continue;
+        }
+        games += 1;
+        for e in &data.events {
+            if !filter.kinds.iter().any(|k| k == &e.kind) {
+                continue;
+            }
+            if e.slot.is_some_and(|s| selected.contains(&s)) {
+                points.push([e.t, e.x, e.y]);
+            }
+        }
+    }
+    Ok(AggregateResult { points, games })
+}
+
 pub fn aggregate_events(app: &AppHandle, filter: &AggregateFilter) -> Result<AggregateResult> {
     let index = read_index(app)?;
     let mut points = Vec::new();
