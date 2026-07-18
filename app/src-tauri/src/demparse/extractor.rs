@@ -47,7 +47,7 @@ pub struct Extractor {
     building_state: HashMap<u32, (u8, f32, f32, u8)>, // ent idx -> (life, x, y, team)
     recent_building_deaths: Vec<(&'static str, u8, f32, f32, f32)>, // kind, team, x, y, t
     pending_building_cl: Vec<(f32, &'static str, u8, Option<i8>, String)>, // t, kind, team, killer slot, name
-    file_info_players: Vec<(String, String)>, // (hero_name, player_name)
+    file_info_players: Vec<(String, String, u32)>, // (hero_name, player_name, account_id)
 }
 
 impl Default for Extractor {
@@ -67,6 +67,7 @@ impl Default for Extractor {
                     hero_id: 0,
                     hero_name: String::new(),
                     name: String::new(),
+                    account_id: 0,
                 })
                 .collect(),
             tracks: vec![Vec::new(); 10],
@@ -158,10 +159,11 @@ impl Extractor {
             e.t -= t0;
         }
         self.events.retain(|e| e.t >= -90.0);
-        // pair player names from file info (matched by hero name)
-        for (hero_name, player_name) in &self.file_info_players {
+        // pair player names + account ids from file info (matched by hero name)
+        for (hero_name, player_name, account_id) in &self.file_info_players {
             if let Some(&slot) = self.name_to_slot.get(hero_name.as_str()) {
                 self.players[slot].name = player_name.clone();
+                self.players[slot].account_id = *account_id;
             }
         }
         let duration = self
@@ -212,8 +214,13 @@ impl Extractor {
                     _ => 0,
                 };
                 for pi in &dota.player_info {
-                    self.file_info_players
-                        .push((pi.hero_name().to_string(), String::from_utf8_lossy(pi.player_name()).to_string()));
+                    // SteamID64 -> 32-bit account id (low 32 bits). 0 for bots.
+                    let account_id = (pi.steamid() & 0xFFFF_FFFF) as u32;
+                    self.file_info_players.push((
+                        pi.hero_name().to_string(),
+                        String::from_utf8_lossy(pi.player_name()).to_string(),
+                        account_id,
+                    ));
                 }
             }
         }

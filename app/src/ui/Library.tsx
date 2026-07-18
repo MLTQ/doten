@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api, readOnly } from '../api';
 import { useStore } from '../store';
 import { heroIconUrl } from '../lib/meta';
 import { fmtClock, mapForBuild } from '../lib/coords';
 import { ALL_KINDS, KIND_STYLES } from '../lib/meta';
-import type { EventKind, GameSummary } from '../types';
+import type { EventKind, GameSummary, SelectionFilter } from '../types';
 
 export function parseFiles(paths: string[]) {
   if (readOnly) return;
@@ -167,6 +167,185 @@ function AggregateBuilder() {
   );
 }
 
+/**
+ * Cross-game player cloud: pick players by hero / account / name across the
+ * whole library, split by team + win, and pool their events into one density
+ * cloud. The identity-aware sibling of the team-scoped Library cloud.
+ */
+function SelectionBuilder() {
+  const library = useStore((s) => s.library);
+  const [kinds, setKinds] = useState<Set<EventKind>>(new Set(['death']));
+  const [heroes, setHeroes] = useState<Set<number>>(new Set());
+  const [accounts, setAccounts] = useState<Set<number>>(new Set());
+  const [nameQuery, setNameQuery] = useState('');
+  const [team, setTeam] = useState('');
+  const [win, setWin] = useState('');
+  const [tag, setTag] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Derive hero + player pick-lists from the library index. Only games parsed
+  // since identity landed carry `players`; older entries contribute nothing.
+  const { heroList, playerNames } = useMemo(() => {
+    const heroGames = new Map<number, number>();
+    const acct = new Map<number, { name: string; games: number }>();
+    for (const g of library) {
+      for (const p of g.players ?? []) {
+        heroGames.set(p.heroId, (heroGames.get(p.heroId) ?? 0) + 1);
+        if (p.accountId) {
+          const cur = acct.get(p.accountId) ?? { name: p.name, games: 0 };
+          cur.games += 1;
+          if (p.name) cur.name = p.name;
+          acct.set(p.accountId, cur);
+        }
+      }
+    }
+    return {
+      heroList: [...heroGames.entries()].sort((a, b) => b[1] - a[1]),
+      playerNames: acct,
+    };
+  }, [library]);
+
+  const playerList = useMemo(
+    () => [...playerNames.entries()].sort((a, b) => b[1].games - a[1].games),
+    [playerNames],
+  );
+  const tags = [...new Set(library.map((g) => g.tag).filter(Boolean))];
+  const hasIdentity = heroList.length > 0 || playerList.length > 0;
+
+  const toggle = <T,>(set: Set<T>, v: T, setter: (s: Set<T>) => void) => {
+    const next = new Set(set);
+    next.has(v) ? next.delete(v) : next.add(v);
+    setter(next);
+  };
+
+  const build = async () => {
+    setBusy(true);
+    try {
+      const filter: SelectionFilter = {
+        kinds: [...kinds],
+        heroes: heroes.size ? [...heroes] : undefined,
+        accounts: accounts.size ? [...accounts] : undefined,
+        nameQuery: nameQuery.trim() || undefined,
+        team: team ? Number(team) : undefined,
+        win: win ? win === 'win' : undefined,
+        tag: tag || undefined,
+      };
+      const res = await api.aggregateSelection(filter);
+      const who: string[] = [];
+      if (accounts.size)
+        who.push([...accounts].map((a) => playerNames.get(a)?.name ?? `#${a}`).join(', '));
+      if (heroes.size) who.push(`${heroes.size} hero${heroes.size > 1 ? 'es' : ''}`);
+      if (nameQuery.trim()) who.push(`name~"${nameQuery.trim()}"`);
+      const facet: string[] = [];
+      if (team) facet.push(team === '2' ? 'Radiant' : 'Dire');
+      if (win) facet.push(win === 'win' ? 'wins' : 'losses');
+      if (tag) facet.push(`tag "${tag}"`);
+      const label = `${[...kinds].map((k) => KIND_STYLES[k].label).join(' + ')} — ${
+        who.length ? who.join(' · ') : 'all players'
+      }${facet.length ? `, ${facet.join(', ')}` : ''} (${res.games} games)`;
+      useStore.getState().openAggregate(res, label);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="agg-builder">
+      <h3>Player cloud</h3>
+      <p className="hint">
+        Study one player across many games: pick them by hero, account, or name, split by side and
+        result, and pool their events — "just my deaths as Slark in games I lost".
+      </p>
+      {!hasIdentity && (
+        <p className="hint">
+          No per-player identity yet — re-parse some replays to populate hero and player pickers
+          (older library entries predate account tracking).
+        </p>
+      )}
+      <div className="agg-kinds">
+        {ALL_KINDS.map((k) => (
+          <label key={k} className="check">
+            <input
+              type="checkbox"
+              checked={kinds.has(k)}
+              onChange={() => toggle(kinds, k, setKinds)}
+            />
+            {KIND_STYLES[k].glyph} {KIND_STYLES[k].label}
+          </label>
+        ))}
+      </div>
+
+      {playerList.length > 0 && (
+        <div className="sel-group">
+          <span className="sel-label">Players</span>
+          <div className="sel-chips">
+            {playerList.map(([id, info]) => (
+              <button
+                key={id}
+                className={`sel-chip${accounts.has(id) ? ' on' : ''}`}
+                title={`${info.games} game${info.games > 1 ? 's' : ''}`}
+                onClick={() => toggle(accounts, id, setAccounts)}
+              >
+                {info.name || `#${id}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {heroList.length > 0 && (
+        <div className="sel-group">
+          <span className="sel-label">Heroes</span>
+          <div className="sel-chips sel-heroes">
+            {heroList.map(([id]) => {
+              const url = heroIconUrl(id);
+              return (
+                <button
+                  key={id}
+                  className={`sel-hero${heroes.has(id) ? ' on' : ''}`}
+                  onClick={() => toggle(heroes, id, setHeroes)}
+                >
+                  {url ? <img src={url} alt="" /> : <span className="hero-dot" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="agg-row">
+        <input
+          className="tag-input"
+          placeholder="player name contains…"
+          value={nameQuery}
+          onChange={(e) => setNameQuery(e.target.value)}
+        />
+        <select value={team} onChange={(e) => setTeam(e.target.value)}>
+          <option value="">Either side</option>
+          <option value="2">Radiant</option>
+          <option value="3">Dire</option>
+        </select>
+        <select value={win} onChange={(e) => setWin(e.target.value)}>
+          <option value="">Win + loss</option>
+          <option value="win">Victories</option>
+          <option value="loss">Defeats</option>
+        </select>
+        <select value={tag} onChange={(e) => setTag(e.target.value)}>
+          <option value="">All tags</option>
+          {tags.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        <button onClick={build} disabled={busy || kinds.size === 0 || library.length === 0}>
+          {busy ? 'Building…' : 'Build cloud'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Library() {
   const library = useStore((s) => s.library);
   const parsing = useStore((s) => s.parsing);
@@ -214,6 +393,7 @@ export function Library() {
           ))}
       </div>
       <AggregateBuilder />
+      <SelectionBuilder />
     </div>
   );
 }

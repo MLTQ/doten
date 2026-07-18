@@ -12,8 +12,8 @@ fn main() -> anyhow::Result<()> {
     );
     for p in &data.players {
         eprintln!(
-            "  slot {} team {} hero {} ({}) player '{}'",
-            p.slot, p.team, p.hero_id, p.hero_name, p.name
+            "  slot {} team {} hero {} ({}) player '{}' account {}",
+            p.slot, p.team, p.hero_id, p.hero_name, p.name, p.account_id
         );
     }
     let mut counts = std::collections::BTreeMap::new();

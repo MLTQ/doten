@@ -1,7 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { apiBase } from 'gruve-sdk';
-import type { AggregateFilter, AggregateResult, GameData, GameSummary } from './types';
+import type {
+  AggregateFilter,
+  AggregateResult,
+  GameData,
+  GameSummary,
+  SelectionFilter,
+} from './types';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -18,6 +24,7 @@ interface Api {
   deleteGame(matchId: number): Promise<void>;
   setTag(matchId: number, tag: string): Promise<void>;
   aggregateEvents(filter: AggregateFilter): Promise<AggregateResult>;
+  aggregateSelection(filter: SelectionFilter): Promise<AggregateResult>;
 }
 
 const realApi: Api = {
@@ -27,6 +34,7 @@ const realApi: Api = {
   deleteGame: (matchId) => invoke<void>('delete_game', { matchId }),
   setTag: (matchId, tag) => invoke<void>('set_tag', { matchId, tag }),
   aggregateEvents: (filter) => invoke<AggregateResult>('aggregate_events', { filter }),
+  aggregateSelection: (filter) => invoke<AggregateResult>('aggregate_selection', { filter }),
 };
 
 // ---------------------------------------------------------------------------
@@ -55,6 +63,12 @@ const httpApi: Api = {
   loadGame: (matchId) => http<GameData>(`/api/games/${matchId}`),
   aggregateEvents: (filter) =>
     http<AggregateResult>('/api/aggregate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(filter),
+    }),
+  aggregateSelection: (filter) =>
+    http<AggregateResult>('/api/aggregate-selection', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(filter),
@@ -90,6 +104,13 @@ const browserApi: Api = {
             gameBuild: g.gameBuild,
             heroesRadiant: g.players.filter((p) => p.team === 2).map((p) => p.heroId),
             heroesDire: g.players.filter((p) => p.team === 3).map((p) => p.heroId),
+            players: g.players.map((p) => ({
+              slot: p.slot,
+              accountId: p.accountId,
+              team: p.team,
+              heroId: p.heroId,
+              name: p.name,
+            })),
             parsedAt: Date.now() / 1000,
             tag: 'fixture',
           },
@@ -116,6 +137,28 @@ const browserApi: Api = {
         .filter((e) => !filter.team || e.team === filter.team)
         .map((e) => [e.t, e.x, e.y] as [number, number, number]);
       return { points, games: 1 };
+    }
+  },
+  aggregateSelection: async (filter) => {
+    try {
+      return await httpApi.aggregateSelection(filter);
+    } catch {
+      const g = await fetchFixture();
+      const q = filter.nameQuery?.toLowerCase();
+      const selected = new Set(
+        g.players
+          .filter((p) => !filter.heroes?.length || filter.heroes.includes(p.heroId))
+          .filter((p) => !filter.accounts?.length || filter.accounts.includes(p.accountId))
+          .filter((p) => !q || p.name.toLowerCase().includes(q))
+          .filter((p) => filter.team == null || p.team === filter.team)
+          .filter((p) => filter.win == null || (g.winner === p.team) === filter.win)
+          .map((p) => p.slot),
+      );
+      const points = g.events
+        .filter((e) => filter.kinds.includes(e.kind))
+        .filter((e) => e.slot != null && selected.has(e.slot))
+        .map((e) => [e.t, e.x, e.y] as [number, number, number]);
+      return { points, games: selected.size ? 1 : 0 };
     }
   },
 };

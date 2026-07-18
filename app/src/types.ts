@@ -10,6 +10,7 @@ export interface PlayerMeta {
   heroId: number;
   heroName: string; // npc_dota_hero_*
   name: string;
+  accountId: number; // 32-bit Steam account id; 0 = unknown/bot
 }
 
 export type EventKind =
@@ -52,6 +53,15 @@ export interface GameData {
   events: MatchEvent[];
 }
 
+/** Per-player identity carried in the library index for cross-game classifiers. */
+export interface PlayerRef {
+  slot: number; // indexes into GameData.tracks / .players
+  accountId: number; // 0 = unknown/bot
+  team: number; // 2 radiant, 3 dire
+  heroId: number;
+  name: string;
+}
+
 export interface GameSummary {
   matchId: number;
   durationS: number;
@@ -59,6 +69,7 @@ export interface GameSummary {
   gameBuild?: number;
   heroesRadiant: number[];
   heroesDire: number[];
+  players?: PlayerRef[]; // absent on pre-analytics index entries
   parsedAt: number;
   tag: string;
 }
@@ -67,6 +78,21 @@ export interface AggregateFilter {
   kinds: string[];
   team?: number;
   win?: boolean;
+  tag?: string;
+}
+
+/**
+ * Cross-game player selection: pick players out of each game by identity
+ * (hero / account / name) and facet (team, win), then pool their events.
+ * Empty classifier arrays / undefined facets mean "no constraint".
+ */
+export interface SelectionFilter {
+  kinds: string[];
+  heroes?: number[]; // hero_id whitelist
+  accounts?: number[]; // 32-bit account_id whitelist
+  nameQuery?: string; // case-insensitive substring on player name
+  team?: number; // 2 radiant / 3 dire
+  win?: boolean; // selected player's team won
   tag?: string;
 }
 

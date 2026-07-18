@@ -14,8 +14,11 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Anchored to repo root: these are Python build/venv dirs for the root project.
+# Un-anchored ("lib/") also matched app/src/lib/, silently un-tracking the
+# frontend's TypeScript lib modules — hence the leading slash.
+/lib/
+/lib64/
 parts/
 sdist/
 var/
