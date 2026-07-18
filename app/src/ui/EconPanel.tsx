@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { fmtClock } from '../lib/coords';
 import { PLAYER_COLORS, heroById } from '../lib/meta';
 import { sampleTrack } from '../lib/track';
+import { EventLog } from './EventLog';
 
 const W = 360;
 const H = 110;
@@ -102,6 +103,7 @@ export function EconPanel() {
           </div>
         ))}
       </div>
+      <EventLog />
     </div>
   );
 }
