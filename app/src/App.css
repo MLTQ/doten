@@ -484,6 +484,81 @@ input[type='text'],
   border-radius: 3px;
 }
 
+/* ---------- event log ---------- */
+.event-log {
+  margin-top: 10px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 8px;
+}
+
+.ev-title {
+  font-size: 12px;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+
+.ev-list {
+  max-height: 168px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ev-empty {
+  font-size: 11px;
+  color: var(--dim);
+  padding: 4px 2px;
+}
+
+.ev-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  padding: 2px 4px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  text-align: left;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.ev-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ev-row.fresh {
+  background: rgba(58, 134, 255, 0.16);
+}
+
+.ev-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.ev-glyph {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+}
+
+.ev-desc {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ev-hero {
+  font-weight: 600;
+}
+
 .agg-label {
   position: absolute;
   top: 12px;
